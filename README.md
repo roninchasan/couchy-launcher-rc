@@ -10,7 +10,6 @@
 
 ![License](https://img.shields.io/badge/license-GPLv3-blue)
 ![Platform](https://img.shields.io/badge/Android%20TV%20·%20Google%20TV-3DDC84?logo=android&logoColor=white)
-![Languages](https://img.shields.io/badge/languages-17%2B-orange)
 
 [**English**](#english) · [中文](#chinese) — [Contributing](CONTRIBUTING.md) · [Licensing](LICENSING.md)
 
@@ -40,12 +39,21 @@ One screen, remote-driven, for 1080p and 4K TVs. No network requests out of the 
 - **Sections** you rename, reorder and fill; an app can appear in several. New installs go to the first section.
 - **Wallpapers** — gradients, your own photo, a looping video, or optional built-in aerial videos (Apple / Amazon / community, streamed only when enabled), with speed control and cross-fades.
 - **Save & load** your full configuration — categories, layout, wallpaper, and all settings — as a JSON file.
-- **18 languages** with a dedicated language picker in Launcher settings.
 - **Adjustable** icon size, spacing, corner roundness, interface scale, dimming, and an optional glass status-bar panel.
 - **Status row** — clock, network state, optional VPN button.
 - **D-pad only** — text entry happens only inside dialogs.
-- **17 languages** (+ English), auto-selected from your system language:
-  العربية · Deutsch · Español · Français · हिन्दी · Bahasa Indonesia · Italiano · 日本語 · 한국어 · Nederlands · Polski · Português · Русский · ไทย · Türkçe · Tiếng Việt · 中文.
+
+### This fork
+
+Personal fork tuned for a low-memory (2 GB) Sony Android TV:
+
+- **Hero clock** — greeting, large clock and the full date (e.g. "Tuesday, October 20") fill the dock home screen; the preset gradient shifts colorway with the time of day (toggle in Settings).
+- **App names under icons** — labels sit below every icon.
+- **Sections in every layout** — the apps below the dock are grouped into labelled sections. Press **Up** from the top row to fold back to the dock; **Up** again reaches the status bar.
+- **TV inputs as apps** — HDMI/AV inputs show up in an "Inputs" section and behave like apps: move them between sections (e.g. into the dock), hide them, and long-press → **Change icon** to pick HDMI, Xbox or gamepad. An input named "Xbox" gets the Xbox logo automatically. A status-bar inputs button opens a quick switcher.
+- **Status-bar shortcuts** — inputs, Sleep Timer and Google Play Store are small status icons (the last two are hidden from the app grid).
+- **Google Play remote button → YouTube** — via a small accessibility service (`KeyRemapService`); enable it under Settings → Accessibility, or `adb shell settings put secure enabled_accessibility_services com.conreo.couchytv/com.conreo.couchytv.KeyRemapService`.
+- **US date format** and English-only: multi-language support was removed to cut size and memory.
 
 ---
 
@@ -135,7 +143,7 @@ No ads, analytics, accounts or background services. The only network use is opti
 - Save/load config to Downloads
 
 **v1.0.5**
-- Launcher settings: Language, Save/Load config, Run wizard
+- Launcher settings: Save/Load config, Run wizard
 - Dynamic version in About
 - 18-language translations
 
@@ -168,7 +176,7 @@ No ads, analytics, accounts or background services. The only network use is opti
 
 ## Contributing & translations
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Adding a language is copying `values/strings.xml` to `values-<lang>/` and translating the values.
+See [CONTRIBUTING.md](CONTRIBUTING.md). This fork is English-only.
 
 <br>
 

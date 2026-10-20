@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,17 +27,23 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Glow
+import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import androidx.compose.foundation.BorderStroke
 import com.conreo.couchytv.data.AppEntry
 
+
+/** Space reserved under a card for its name (label + gap). */
+val CardLabelHeight = 26.dp
 
 @Composable
 fun AppCard(
@@ -68,6 +75,9 @@ fun AppCard(
         onLongPress()
     }
 
+    // The caller's modifier (focus requester, entrance animation, key handlers)
+    // lands on the outer column so the name below the card moves with it.
+    Column(modifier.width(cardWidth)) {
     // Focus: the card grows a touch, lifts on a soft tight shadow, and gains a
     // thin accent ring — crisp to read across a room.
     Surface(
@@ -76,7 +86,8 @@ fun AppCard(
             if (SystemClock.uptimeMillis() - longPressAt > 1_000L) onLaunch()
         },
         onLongClick = { fireLongPress() }, // pointer / mouse path
-        modifier = modifier
+        modifier = Modifier
+            .fillMaxWidth()
             .onPreviewKeyEvent { e ->
                 val select = e.key == Key.DirectionCenter || e.key == Key.Enter ||
                     e.key == Key.NumPadEnter
@@ -93,8 +104,7 @@ fun AppCard(
                     fireLongPress()
                 }
                 true // swallow the repeats themselves
-            }
-            .width(cardWidth),
+            },
         shape = ClickableSurfaceDefaults.shape(cardShape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = app.tile,
@@ -146,27 +156,19 @@ fun AppCard(
                             )
                         )
                 )
-                Column(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        if (app.icon != null) {
-                            Image(
-                                bitmap = app.icon,
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp),
-                            )
-                        }
-                    }
-                    if (showLabel) {
-                        Text(
-                            text = app.label,
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (app.glyph != null) {
+                        Icon(
+                            imageVector = app.glyph,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(cardWidth * 0.3f),
+                        )
+                    } else if (app.icon != null) {
+                        Image(
+                            bitmap = app.icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
                         )
                     }
                 }
@@ -180,4 +182,22 @@ fun AppCard(
             }
         }
     }
+    if (showLabel) {
+        Text(
+            text = app.label,
+            style = MaterialTheme.typography.labelMedium.copy(
+                shadow = Shadow(Color.Black.copy(alpha = 0.7f), blurRadius = 6f),
+            ),
+            color = Color.White.copy(alpha = 0.9f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(CardLabelHeight)
+                .padding(top = 8.dp, start = 2.dp, end = 2.dp),
+        )
+    }
+    }
 }
+

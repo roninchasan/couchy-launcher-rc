@@ -13,6 +13,10 @@ object Actions {
     }
 
     fun launchApp(context: Context, pkg: String) {
+        if (com.conreo.couchytv.data.Inputs.isInput(pkg)) {
+            launchInput(context, com.conreo.couchytv.data.Inputs.idOf(pkg))
+            return
+        }
         val pm = context.packageManager
         val intent = pm.getLeanbackLaunchIntentForPackage(pkg)
             ?: pm.getLaunchIntentForPackage(pkg)
@@ -20,6 +24,16 @@ object Actions {
             runCatching { context.startActivity(intent) }
                 .onFailure { toast(context, context.getString(R.string.toast_cannot_open)) }
         } else toast(context, context.getString(R.string.toast_no_launchable))
+    }
+
+    /** Switches the TV to a passthrough input (HDMI, AV...). */
+    fun launchInput(context: Context, inputId: String) {
+        val uri = android.media.tv.TvContract.buildChannelUriForPassthroughInput(inputId)
+        runCatching {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }.onFailure { toast(context, context.getString(R.string.toast_cannot_open)) }
     }
 
     fun openAppInfo(context: Context, pkg: String) {

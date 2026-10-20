@@ -32,9 +32,13 @@ data class LauncherConfig(
     /** category id -> explicit package order */
     val order: Map<String, List<String>> = emptyMap(),
     val hidden: Set<String> = emptySet(),
+    /** input pkg -> chosen icon (Inputs.ICON_*); missing = guessed from the input's name */
+    val inputIcons: Map<String, String> = emptyMap(),
     /** packages seen on the last scan — new installs are auto-added to the first section */
     val knownApps: Set<String> = emptySet(),
     val wallpaper: Int = 1, // Aurora
+    /** Preset gradient wallpaper shifts colorway with the time of day. */
+    val dynamicGradient: Boolean = true,
     val useCustomWallpaper: Boolean = false,
     /** video wallpaper: persisted content-URI of a local video, looped muted */
     val videoUri: String = "",
@@ -57,7 +61,7 @@ data class LauncherConfig(
     /** wrap the status-bar icons in the same glass panel as dock mode */
     val statusBarGlass: Boolean = true,
     /** index into DATE_FORMATS; 0 = no date shown */
-    val dateFormat: Int = 0,
+    val dateFormat: Int = 7, // "Mon, Oct 19"
     // ----- display options -----
     /** wallpaper dimming: 0 = top & bottom, 1 = top, 2 = bottom, 3 = full, 4 = off */
     val scrimMode: Int = 1, // Top
@@ -71,8 +75,6 @@ data class LauncherConfig(
     val cornerRadius: Int = 3, // Large
     /** UI scale: 0 = Auto (compact high-DPI TVs), 1..5 = fixed (see UI_SCALES) */
     val uiScale: Int = 0, // Auto
-    /** language code (e.g. "fr", "de"); empty = system default */
-    val language: String = "",
     /** 0 = carousel (fixed selection), 1 = grid, 2 = dock */
     val layout: Int = 2, // Dock
 )
@@ -82,15 +84,7 @@ const val LAYOUT_GRID = 1
 const val LAYOUT_DOCK = 2
 
 /** Status bar date formats (SimpleDateFormat patterns); index 0 = off. */
-val DATE_FORMATS = listOf("", "EEE d", "EEE d MMM", "d MMM yyyy", "dd/MM", "MM/dd", "yyyy-MM-dd")
-
-/** Sorted by user base — the display name is localized in the UI via string resource. */
-val LANGUAGES = listOf(
-    "",     // system default
-    "zh", "es", "ja", "de", "fr",   // tier 1
-    "pt", "ru", "ko", "ar", "it",   // tier 2
-    "tr", "pl", "nl", "hi", "th", "in", "vi", // tier 3
-)
+val DATE_FORMATS = listOf("", "EEE d", "EEE d MMM", "d MMM yyyy", "dd/MM", "MM/dd", "yyyy-MM-dd", "EEE, MMM d")
 
 private val Context.dataStore by preferencesDataStore(name = "launcher")
 private val KEY_CONFIG = stringPreferencesKey("config")

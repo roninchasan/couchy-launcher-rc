@@ -42,6 +42,7 @@ data class MenuEntry(
 fun AppContextMenu(
     app: AppEntry,
     isHidden: Boolean,
+    isInput: Boolean,
     onDismiss: () -> Unit,
     onOpen: () -> Unit,
     onMove: () -> Unit,
@@ -49,11 +50,17 @@ fun AppContextMenu(
     onAppInfo: () -> Unit,
     onClose: () -> Unit,
     onUninstall: () -> Unit,
+    onChangeIcon: () -> Unit,
 ) {
-    val entries = listOf(
+    val common = listOf(
         MenuEntry(stringResource(R.string.menu_open), AppIcons.Play, onOpen),
         MenuEntry(stringResource(R.string.menu_move), AppIcons.Move, onMove),
         MenuEntry(if (isHidden) stringResource(R.string.menu_unhide) else stringResource(R.string.menu_hide), AppIcons.Hide, onToggleHide),
+    )
+    // Inputs aren't packages: no app info / close / uninstall, but the icon is choosable.
+    val entries = if (isInput) common + MenuEntry(
+        stringResource(R.string.menu_change_icon), app.glyph ?: AppIcons.Hdmi, onChangeIcon,
+    ) else common + listOf(
         MenuEntry(stringResource(R.string.menu_app_info), AppIcons.Info, onAppInfo),
         MenuEntry(stringResource(R.string.menu_close), AppIcons.Stop, onClose),
         MenuEntry(stringResource(R.string.menu_uninstall), AppIcons.Delete, onUninstall),
@@ -61,16 +68,33 @@ fun AppContextMenu(
     MenuDialog(title = app.label, entries = entries, onDismiss = onDismiss)
 }
 
+/** Quick input switcher opened from the status bar. */
+@Composable
+fun InputPicker(
+    inputs: List<AppEntry>,
+    onPick: (AppEntry) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    MenuDialog(
+        title = stringResource(R.string.cat_inputs),
+        entries = inputs.map { MenuEntry(it.label, it.glyph ?: AppIcons.Hdmi) { onPick(it) } },
+        onDismiss = onDismiss,
+        // Opened by a click, not a long-press: nothing to wait out.
+        awaitRelease = false,
+    )
+}
+
 @Composable
 private fun MenuDialog(
     title: String,
     entries: List<MenuEntry>,
     onDismiss: () -> Unit,
+    awaitRelease: Boolean = true,
 ) {
     // The menu opens while the OK button is still physically HELD (long-press).
     // Ignore every OK event — held repeats AND the final release — until the
     // button has been fully released once. Only a fresh press activates items.
-    var released by remember { mutableStateOf(false) }
+    var released by remember { mutableStateOf(!awaitRelease) }
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(16.dp),

@@ -245,6 +245,9 @@ fun SettingsSheet(
                                 }
                             }
                         },
+                        onToggleDynamic = {
+                            scope.launch { store.update { it.copy(dynamicGradient = !it.dynamicGradient) } }
+                        },
                         onPickPhoto = {
                             runCatching { photoPicker.launch(arrayOf("image/*")) }
                                 .onFailure { Actions.toast(context, context.getString(R.string.toast_no_picker)) }
@@ -795,13 +798,6 @@ private fun LauncherSettingsSubscreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var langScreen by remember { mutableStateOf(false) }
-
-    if (langScreen) {
-        LanguageScreen(config = config, store = store, onBack = { langScreen = false })
-        return
-    }
-
     fun saveConfig() {
         scope.launch {
             withContext(Dispatchers.IO) {
@@ -848,13 +844,6 @@ private fun LauncherSettingsSubscreen(
         )
         SettingsItem(
             selected = false,
-            onClick = { langScreen = true },
-            headlineContent = { Text(stringResource(R.string.item_language)) },
-            supportingContent = { Text(stringResource(R.string.item_language_sub)) },
-            leadingContent = { Icon(AppIcons.Language, contentDescription = null) },
-        )
-        SettingsItem(
-            selected = false,
             onClick = { saveConfig() },
             headlineContent = { Text(stringResource(R.string.item_save_config)) },
             supportingContent = { Text(stringResource(R.string.item_save_config_sub)) },
@@ -874,46 +863,6 @@ private fun LauncherSettingsSubscreen(
             supportingContent = { Text(stringResource(R.string.rerun_wizard_sub)) },
             leadingContent = { Icon(AppIcons.Play, contentDescription = null) },
         )
-    }
-}
-
-/* ------------------------------ language ------------------------------ */
-
-@Composable
-private fun LanguageScreen(
-    config: LauncherConfig,
-    store: ConfigStore,
-    onBack: () -> Unit,
-) {
-    val scope = rememberCoroutineScope()
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(
-            stringResource(R.string.item_language),
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(bottom = 12.dp, start = 8.dp),
-        )
-        val f = initialFocus()
-        com.conreo.couchytv.data.LANGUAGES.forEachIndexed { i, code ->
-            // Endonym: each language named in its own tongue (no per-language strings)
-            val label = if (code.isEmpty()) stringResource(R.string.lang_system)
-            else java.util.Locale(code).let { it.getDisplayName(it) }
-                .replaceFirstChar { it.uppercase() }
-            SettingsItem(
-                selected = false,
-                onClick = {
-                    // Just persist it; LauncherApp mirrors it and recreates.
-                    if (code != config.language) scope.launch {
-                        store.update { it.copy(language = code) }
-                    }
-                },
-                headlineContent = { Text(label) },
-                trailingContent = { CheckMark(checked = config.language == code) },
-                modifier = if (i == 0) Modifier.focusRequester(f) else Modifier,
-            )
-        }
     }
 }
 
@@ -967,7 +916,7 @@ private fun StatusBarScreen(
                 label = stringResource(R.string.date_label),
                 // Live preview of today's date in the selected format
                 value = if (idx == 0) stringResource(R.string.off)
-                else java.text.SimpleDateFormat(DATE_FORMATS[idx], java.util.Locale.getDefault())
+                else java.text.SimpleDateFormat(DATE_FORMATS[idx], java.util.Locale.US)
                     .format(java.util.Date()),
                 steps = DATE_FORMATS.size,
                 current = idx,
@@ -1247,6 +1196,7 @@ private fun WallpaperScreen(
     onSetScrim: (Int) -> Unit,
     onSetSpeed: (Int) -> Unit,
     onPreset: (Int) -> Unit,
+    onToggleDynamic: () -> Unit,
     onPickPhoto: () -> Unit,
     onPickVideo: () -> Unit,
 ) {
@@ -1310,6 +1260,12 @@ private fun WallpaperScreen(
                 steps = WALLPAPERS.size,
                 current = presetIdx,
                 onSelect = { v -> onPreset(v) },
+            )
+            SettingsItem(
+                selected = false, onClick = onToggleDynamic,
+                headlineContent = { Text(stringResource(R.string.dynamic_gradient)) },
+                supportingContent = { Text(stringResource(R.string.dynamic_gradient_sub)) },
+                trailingContent = { CheckMark(checked = config.dynamicGradient) },
             )
         }
 

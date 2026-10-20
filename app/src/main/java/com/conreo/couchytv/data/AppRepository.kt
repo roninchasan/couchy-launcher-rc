@@ -10,6 +10,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.core.graphics.drawable.toBitmap
 import com.conreo.couchytv.ui.tileColor
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +38,8 @@ data class AppEntry(
     val stamp: Long,
     /** firstInstallTime — tiebreak so a newly installed app sorts last in its section. */
     val firstInstall: Long,
+    /** Vector glyph drawn instead of artwork (TV input shortcuts). */
+    val glyph: ImageVector? = null,
 )
 
 object AppRepository {
@@ -65,6 +68,11 @@ object AppRepository {
         "com.nvidia.geforcenow" to "games",
         "com.retroarch" to "games",
     )
+
+    /** Apps surfaced as status-bar icons instead of tiles. */
+    const val PLAY_STORE_PKG = "com.android.vending"
+    const val SLEEP_TIMER_PKG = "com.sony.dtv.timers"
+    private val STATUS_BAR_PKGS = setOf(PLAY_STORE_PKG, SLEEP_TIMER_PKG)
 
     /** Last successful scan — lets a relaunched activity render instantly. */
     @Volatile
@@ -104,7 +112,9 @@ object AppRepository {
         for (intent in intents) {
             for (ri in pm.queryIntentActivities(intent, 0)) {
                 val pkg = ri.activityInfo?.packageName ?: continue
-                if (pkg != context.packageName && pkg !in candidates) candidates[pkg] = ri
+                if (pkg != context.packageName && pkg !in candidates && pkg !in STATUS_BAR_PKGS) {
+                    candidates[pkg] = ri
+                }
             }
         }
 

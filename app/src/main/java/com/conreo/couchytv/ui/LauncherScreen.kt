@@ -75,7 +75,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.compose.ui.res.stringResource
 import com.conreo.couchytv.Actions
+import com.conreo.couchytv.R
+import com.conreo.couchytv.data.CategoryCfg
 import com.conreo.couchytv.data.AppEntry
 import com.conreo.couchytv.data.AppRepository
 import com.conreo.couchytv.data.ConfigStore
@@ -228,16 +231,7 @@ fun LauncherApp(rescanTick: Int) {
         androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp,
     )
 
-    // Mirror the chosen language to SharedPreferences (which attachBaseContext
-    // reads synchronously) and recreate the activity when it changes, so the new
-    // locale takes effect without a restart.
     val activity = remember(context) { context.findActivity() }
-    LaunchedEffect(config.language) {
-        if (com.conreo.couchytv.MainActivity.currentLocalePref(context) != config.language) {
-            com.conreo.couchytv.MainActivity.persistLocale(context, config.language)
-            activity?.recreate()
-        }
-    }
     // The SurfaceView video wallpaper needs a transparent window to show through;
     // every other mode draws an opaque wallpaper, so keep the window opaque then
     // (a transparent window would let whatever is behind the home leak through).
@@ -295,20 +289,16 @@ fun LauncherApp(rescanTick: Int) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Format with the app's current locale (reflects the language override, and
-    // recomposes on change) — not Locale.getDefault(), which the framework can
-    // reset, leaving the date stuck in the previous language.
-    val locale = androidx.core.os.ConfigurationCompat
-        .getLocales(androidx.compose.ui.platform.LocalConfiguration.current)
-        .get(0) ?: Locale.getDefault()
-    val time by produceState(initialValue = "", config.h24, locale, resumeTick) {
+    // US formats throughout (e.g. "Mon, Oct 19").
+    val locale = Locale.US
+    val time by produceState(initialValue = "", config.h24, resumeTick) {
         val fmt = SimpleDateFormat(if (config.h24) "HH:mm" else "h:mm a", locale)
         while (true) {
             value = fmt.format(Date())
             delay(60_000L - System.currentTimeMillis() % 60_000L + 50L)
         }
     }
-    val date by produceState(initialValue = "", config.dateFormat, locale, resumeTick) {
+    val date by produceState(initialValue = "", config.dateFormat, resumeTick) {
         val pattern = com.conreo.couchytv.data.DATE_FORMATS
             .getOrElse(config.dateFormat) { "" }
         if (pattern.isEmpty()) { value = ""; return@produceState }
@@ -318,24 +308,67 @@ fun LauncherApp(rescanTick: Int) {
             delay(60_000L - System.currentTimeMillis() % 60_000L + 50L)
         }
     }
+    // Home-screen centerpiece date and the fractional hour driving the greeting
+    // and the sky gradient — both refresh on the minute.
+    val centerDate by produceState(initialValue = "", resumeTick) {
+        val fmt = SimpleDateFormat("EEEE, MMMM d", locale)
+        while (true) {
+            value = fmt.format(Date())
+            delay(60_000L - System.currentTimeMillis() % 60_000L + 50L)
+        }
+    }
+    val dayHour by produceState(initialValue = 12f, resumeTick) {
+        while (true) {
+            val c = java.util.Calendar.getInstance()
+            value = c.get(java.util.Calendar.HOUR_OF_DAY) + c.get(java.util.Calendar.MINUTE) / 60f
+            delay(60_000L - System.currentTimeMillis() % 60_000L + 50L)
+        }
+    }
+    val greeting = stringResource(
+        when {
+            dayHour >= 22f || dayHour < 5f -> R.string.greeting_night
+            dayHour < 12f -> R.string.greeting_morning
+            dayHour < 17f -> R.string.greeting_afternoon
+            else -> R.string.greeting_evening
+        }
+    )
+
+    // TV inputs (HDMI etc.) behave like apps: they join the app list below.
+    val rawInputs by produceState(emptyList<AppEntry>(), rescanTick) {
+        value = withContext(Dispatchers.IO) { com.conreo.couchytv.data.Inputs.load(context) }
+    }
+    val inputs = remember(rawInputs, config.inputIcons) {
+        rawInputs.map { com.conreo.couchytv.data.Inputs.styled(it, config.inputIcons[it.pkg]) }
+    }
+    val allApps = remember(apps, inputs) { apps + inputs }
+    val inputsName = stringResource(R.string.cat_inputs)
+    var showInputPicker by remember { mutableStateOf(false) }
+    val hasStore = remember { Actions.isInstalled(context, AppRepository.PLAY_STORE_PKG) }
+    val hasSleepTimer = remember { Actions.isInstalled(context, AppRepository.SLEEP_TIMER_PKG) }
 
     // New installs are auto-added to the FIRST section.
-    LaunchedEffect(apps) {
+    // New inputs go to their own "Inputs" section (created on demand) instead.
+    LaunchedEffect(allApps) {
         if (apps.isEmpty()) return@LaunchedEffect
-        val current = apps.map { it.pkg }.toSet()
+        val current = allApps.map { it.pkg }.toSet()
+        val inputPkgs = inputs.map { it.pkg }.toSet()
         store.update { cfg ->
-            if (cfg.knownApps.isEmpty()) cfg.copy(knownApps = current)
-            else {
-                val added = current - cfg.knownApps
-                if (added.isEmpty() && current == cfg.knownApps) cfg
-                else {
-                    val first = cfg.categories.first().id
-                    cfg.copy(
-                        knownApps = current,
-                        sections = cfg.sections + added.associateWith { setOf(first) },
-                    )
-                }
-            }
+            // A console's CEC input comes and goes with its power state; remember
+            // inputs so a returning one keeps its section instead of resetting.
+            val known = current + cfg.knownApps.filter { com.conreo.couchytv.data.Inputs.isInput(it) }
+            val newInputs = inputPkgs.filter { it !in cfg.knownApps && it !in cfg.sections }
+            val added = if (cfg.knownApps.isEmpty()) emptySet() else current - cfg.knownApps - inputPkgs
+            if (newInputs.isEmpty() && added.isEmpty() && known == cfg.knownApps) return@update cfg
+            val first = cfg.categories.first().id
+            val cats = if (newInputs.isNotEmpty() && cfg.categories.none { it.id == "inputs" })
+                cfg.categories + com.conreo.couchytv.data.CategoryCfg("inputs", inputsName)
+            else cfg.categories
+            cfg.copy(
+                knownApps = known,
+                categories = cats,
+                sections = cfg.sections + added.associateWith { setOf(first) } +
+                    newInputs.associateWith { setOf("inputs") },
+            )
         }
     }
 
@@ -346,14 +379,12 @@ fun LauncherApp(rescanTick: Int) {
 
     // Drop empty sections: an empty row is dead space AND a focus trap that
     // stops D-pad navigation from reaching the section below it.
-    val categorized = remember(apps, config) {
-        AppRepository.categorize(apps, config).filter { it.second.isNotEmpty() }
+    val categorized = remember(allApps, config) {
+        AppRepository.categorize(allApps, config).filter { it.second.isNotEmpty() }
     }
-    // The dock's flat app list (all sections concatenated, de-duped). Hoisted &
-    // remembered so its identity stays stable across recompositions — otherwise a
-    // fresh list on every clock tick blocks DockArea from strong-skipping.
-    val dockApps = remember(categorized) {
-        categorized.flatMap { it.second }.distinctBy { it.pkg }
+    val sections = categorized
+    val openMenu: (AppEntry) -> Unit = { app ->
+        if (movePkg == null) menuFor = app
     }
     val accent = ACCENTS[config.accent.coerceIn(0, ACCENTS.size - 1)]
 
@@ -397,7 +428,7 @@ fun LauncherApp(rescanTick: Int) {
         val target = catIndex + delta
         if (target < 0 || target >= categorized.size) return
         val pkg = movePkg ?: return
-        val app = apps.firstOrNull { it.pkg == pkg } ?: return
+        val app = allApps.firstOrNull { it.pkg == pkg } ?: return
         val sourceId = categorized[catIndex].first.id
         val targetId = categorized[target].first.id
         val targetList = categorized[target].second
@@ -440,60 +471,11 @@ fun LauncherApp(rescanTick: Int) {
         }
     }
 
-    // Dock: one flat sequence (all sections concatenated). Moving by [delta]
-    // positions may cross a section block, so the moved app is re-homed into
-    // its new neighbour's section and every affected order list is rebuilt from
-    // the resulting sequence.
-    // ponytail: a multi-section app (shown once in the dock) is re-homed only
-    // for its displayed section; its other memberships are left as-is.
-    fun moveDock(delta: Int) {
-        val pkg = movePkg ?: return
-        val fi = dockApps.indexOfFirst { it.pkg == pkg }
-        if (fi < 0) return
-        val target = fi + delta
-        if (target < 0 || target >= dockApps.size) return
-        val flat = dockApps.map { it.pkg }.toMutableList()
-        flat.removeAt(fi)
-        flat.add(target, pkg)
-
-        val orderCats = config.categories.map { it.id }
-        fun dockCatOf(p: String): String {
-            val app = apps.firstOrNull { it.pkg == p } ?: return orderCats.last()
-            val secs = AppRepository.sectionsOf(app, config)
-            return orderCats.firstOrNull { it in secs } ?: orderCats.last()
-        }
-        val sourceCat = dockCatOf(pkg)
-        val targetCat = flat.getOrNull(target - 1)?.let { dockCatOf(it) }
-            ?: flat.getOrNull(target + 1)?.let { dockCatOf(it) }
-            ?: sourceCat
-        val movedApp = apps.firstOrNull { it.pkg == pkg }
-
-        scope.launch {
-            store.update { cfg ->
-                val newSections = if (movedApp != null && sourceCat != targetCat) {
-                    val eff = AppRepository.sectionsOf(movedApp, cfg)
-                    cfg.sections + (pkg to (eff - sourceCat + targetCat))
-                } else cfg.sections
-                val catOf = { p: String -> if (p == pkg) targetCat else dockCatOf(p) }
-                val newOrder = cfg.order.toMutableMap()
-                for (cid in orderCats) {
-                    val seq = flat.filter { catOf(it) == cid }
-                    if (seq.isEmpty()) continue
-                    // keep any stored (e.g. hidden) packages not on screen
-                    val extras = cfg.order[cid].orEmpty().filter { it !in seq }
-                    newOrder[cid] = seq + extras
-                }
-                cfg.copy(sections = newSections, order = newOrder)
-            }
-        }
-    }
-
-    fun moveHorizontal(delta: Int) =
-        if (config.layout == LAYOUT_DOCK) moveDock(delta) else moveWithinRow(delta)
+    fun moveHorizontal(delta: Int) = moveWithinRow(delta)
 
     fun moveVertical(delta: Int) = when (config.layout) {
         LAYOUT_GRID -> moveGridVertical(delta, gridCols)
-        LAYOUT_DOCK -> moveDock(if (delta < 0) -dockCols else dockCols)
+        LAYOUT_DOCK -> moveGridVertical(delta, dockCols)
         else -> moveAcrossRows(delta)
     }
 
@@ -527,8 +509,12 @@ fun LauncherApp(rescanTick: Int) {
         }
     }
     val (wallpaperSharp, wallpaperBlurred) = wallpaperPair
-    val presetBrush = remember(config.wallpaper) {
-        WALLPAPERS[config.wallpaper.coerceIn(0, WALLPAPERS.size - 1)].brush()
+    // The sky gradient only needs rebuilding every few minutes; the quantized
+    // key keeps it from allocating a new brush each tick.
+    val skyKey = (dayHour * 12f).toInt()
+    val presetBrush = remember(config.wallpaper, config.dynamicGradient, skyKey) {
+        if (config.dynamicGradient) timeOfDayBrush(skyKey / 12f)
+        else WALLPAPERS[config.wallpaper.coerceIn(0, WALLPAPERS.size - 1)].brush()
     }
 
     // ----- Built-in aerial videos: the manifests ship with the launcher, so
@@ -707,8 +693,17 @@ fun LauncherApp(rescanTick: Int) {
                         net = net,
                         time = time,
                         date = date,
+                        // The dock home has its own big clock; show the small one
+                        // only where there isn't one.
+                        showClock = !(config.layout == LAYOUT_DOCK && !dockExpanded),
+                        showStore = hasStore,
+                        showSleepTimer = hasSleepTimer,
                         showVpn = config.showVpnButton,
                         glass = config.statusBarGlass,
+                        showInputs = inputs.any { it.pkg !in config.hidden },
+                        onInputsClick = { showInputPicker = true },
+                        onStoreClick = { Actions.launchApp(context, AppRepository.PLAY_STORE_PKG) },
+                        onSleepTimerClick = { Actions.launchApp(context, AppRepository.SLEEP_TIMER_PKG) },
                         onVpnClick = {
                             if (config.vpnApp.isNotEmpty()) Actions.launchApp(context, config.vpnApp)
                             else Actions.openVpnSettings(context)
@@ -720,7 +715,10 @@ fun LauncherApp(rescanTick: Int) {
                 when (config.layout) {
                     LAYOUT_DOCK -> DockArea(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
-                        apps = dockApps,
+                        sections = sections,
+                        time = time,
+                        date = centerDate,
+                        greeting = greeting,
                         config = config,
                         accent = accent,
                         movePkg = movePkg,
@@ -731,7 +729,7 @@ fun LauncherApp(rescanTick: Int) {
                         expanded = dockExpanded,
                         onExpandChange = { dockExpanded = it },
                         onLaunch = { app -> if (movePkg == null) Actions.launchApp(context, app.pkg) },
-                        onMenu = { app -> if (movePkg == null) menuFor = app },
+                        onMenu = openMenu,
                     )
                     else -> {
                         // Magnetic vertical scroll: the focused row is pinned to a
@@ -790,8 +788,8 @@ fun LauncherApp(rescanTick: Int) {
                                 ),
                                 verticalArrangement = Arrangement.spacedBy(18.dp),
                             ) {
-                        items(categorized.size, key = { categorized[it].first.id }) { rowIndex ->
-                            val (cat, catApps) = categorized[rowIndex]
+                        items(sections.size, key = { sections[it].first.id }) { rowIndex ->
+                            val (cat, catApps) = sections[rowIndex]
                             val isGrid = config.layout == LAYOUT_GRID
                             // One-shot launch entrance (tied to introShown, so it never
                             // replays on scroll/navigation): carousel rows slide in from
@@ -835,14 +833,14 @@ fun LauncherApp(rescanTick: Int) {
                                         catApps, config, accent, movePkg, moveFocus,
                                         cardWidth, gap, introShown,
                                         onLaunch = { app -> if (movePkg == null) Actions.launchApp(context, app.pkg) },
-                                        onMenu = { app -> if (movePkg == null) menuFor = app },
+                                        onMenu = openMenu,
                                     )
                                 } else {
                                     CarouselSection(
                                         catApps, config, accent, movePkg, moveFocus,
                                         cardWidth, gap,
                                         onLaunch = { app -> if (movePkg == null) Actions.launchApp(context, app.pkg) },
-                                        onMenu = { app -> if (movePkg == null) menuFor = app },
+                                        onMenu = openMenu,
                                     )
                                 }
                             }
@@ -858,6 +856,16 @@ fun LauncherApp(rescanTick: Int) {
                 AppContextMenu(
                     app = app,
                     isHidden = app.pkg in config.hidden,
+                    isInput = com.conreo.couchytv.data.Inputs.isInput(app.pkg),
+                    onChangeIcon = {
+                        menuFor = null
+                        scope.launch {
+                            store.update {
+                                it.copy(inputIcons = it.inputIcons + (app.pkg to
+                                    com.conreo.couchytv.data.Inputs.nextIcon(app, it.inputIcons[app.pkg])))
+                            }
+                        }
+                    },
                     onDismiss = { menuFor = null },
                     onOpen = { menuFor = null; Actions.launchApp(context, app.pkg) },
                     onMove = { menuFor = null; movePkg = app.pkg },
@@ -875,6 +883,14 @@ fun LauncherApp(rescanTick: Int) {
                     onAppInfo = { menuFor = null; Actions.openAppInfo(context, app.pkg) },
                     onClose = { menuFor = null; Actions.close(context, app.pkg) },
                     onUninstall = { menuFor = null; Actions.uninstall(context, app.pkg) },
+                )
+            }
+
+            if (showInputPicker) {
+                InputPicker(
+                    inputs = inputs.filter { it.pkg !in config.hidden },
+                    onPick = { showInputPicker = false; Actions.launchApp(context, it.pkg) },
+                    onDismiss = { showInputPicker = false },
                 )
             }
 
@@ -1052,7 +1068,10 @@ private fun GridSection(
 @Composable
 private fun DockArea(
     modifier: Modifier,
-    apps: List<AppEntry>,
+    sections: List<Pair<CategoryCfg, List<AppEntry>>>,
+    time: String,
+    date: String,
+    greeting: String,
     config: LauncherConfig,
     accent: Color,
     movePkg: String?,
@@ -1093,11 +1112,16 @@ private fun DockArea(
         val available = maxWidth - 80.dp - panelInnerPadding * 2
         val (cols, gapUsed) = fitRow(available, cardWidth, gap)
         val cardHeight = cardWidth * 9f / 16f
-        val rows = apps.chunked(cols)
+        // The dock is the first section's first row; unfolding reveals every
+        // section as its own labelled group, with that same row on top.
+        val firstSection = sections.firstOrNull()?.second.orEmpty()
+        val dockRow = firstSection.take(cols)
+        // Teaser under the dock: the next row in reading order.
+        val peekRow = (if (firstSection.size > cols) firstSection.drop(cols)
+        else sections.getOrNull(1)?.second.orEmpty()).take(cols)
         // The grid opens focused on row 0, same column as the dock icon we came
         // from (row 0 is those same icons) — focus stays put, it doesn't jump down.
-        val targetRow = 0
-        val targetCol = expandFromCol.coerceIn(0, (rows.getOrNull(targetRow)?.size ?: 1) - 1)
+        val targetCol = expandFromCol.coerceIn(0, (dockRow.size - 1).coerceAtLeast(0))
         // Fixed block width shared by every row: complete rows are centered,
         // and a partial LAST row stays left-aligned with the columns above.
         val blockWidth = cardWidth * cols + gapUsed * (cols - 1)
@@ -1105,8 +1129,10 @@ private fun DockArea(
         // Distance between the grid's row-0 spot (top, 24dp pad) and the dock's
         // row-0 spot (bottom): the grid slides straight out of / back into the
         // dock icons, so the same icons read as one set rising and sinking.
+        val labelH = if (config.showAppLabels) CardLabelHeight else 0.dp
+        val sectionLabelH = if (config.showCategoryNames) 34.dp else 0.dp
         val dockRisePx = with(androidx.compose.ui.platform.LocalDensity.current) {
-            (maxHeight - peekH - cardHeight - 52.dp).toPx()
+            (maxHeight - peekH - cardHeight - labelH - sectionLabelH - 52.dp).toPx()
         }.toInt().coerceAtLeast(0)
         // Row spacing morphs from a wide "dock" gap down to the tight grid gap as
         // it opens (rows start far apart, like the dock, then draw together), and
@@ -1118,7 +1144,16 @@ private fun DockArea(
         )
 
         Column(Modifier.fillMaxSize()) {
-            Spacer(Modifier.weight(1f))
+            // Centerpiece: greeting, big clock and date fill the space above the dock.
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = intro && !expanded,
+                    enter = fadeIn(tween(300)),
+                    exit = fadeOut(tween(150)),
+                ) {
+                    HomeClock(time = time, date = date, greeting = greeting)
+                }
+            }
             // Glass panel + row-0 icons, DISSOCIATED so they animate apart: the
             // frosted panel slides DOWN and fades out; the icons fade and drift
             // UP (toward the grid), while the grid rises them into position.
@@ -1128,7 +1163,8 @@ private fun DockArea(
             ) {
                 DockGlassPanel(
                     visible = intro && !expanded,
-                    rowApps = rows.firstOrNull().orEmpty(),
+                    rowApps = dockRow,
+                    focusCol = targetCol,
                     config = config,
                     accent = accent,
                     movePkg = movePkg,
@@ -1146,13 +1182,13 @@ private fun DockArea(
             // Fades in in SYNC with the dock icons (same delay), so the peek never
             // appears before row 0 on collapse.
             AnimatedVisibility(
-                visible = intro && !expanded && rows.size > 1,
+                visible = intro && !expanded && peekRow.isNotEmpty(),
                 enter = fadeIn(tween(200, delayMillis = 220)),
                 exit = fadeOut(tween(200)),
             ) {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                     Row(horizontalArrangement = Arrangement.spacedBy(gapUsed)) {
-                        rows.getOrNull(1).orEmpty().forEach { app ->
+                        peekRow.forEach { app ->
                             PeekStrip(app, cardWidth, cardHeight, peekH)
                         }
                     }
@@ -1174,36 +1210,57 @@ private fun DockArea(
                 slideOutVertically(tween(340, easing = FastOutSlowInEasing)) { dockRisePx },
             modifier = Modifier.fillMaxSize(),
         ) {
-            // Panel is gone; ALL icons over the blurred wallpaper, same column
-            // count and same centering as the dock. Up from row 0 returns.
+            // Panel is gone; every section's icons over the blurred wallpaper, same
+            // column count and centering as the dock. Up from the first row restores
+            // the dock; a second Up reaches the status bar.
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(vertical = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(rowGap),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                items(rows.size, key = { rows.getOrNull(it)?.firstOrNull()?.pkg ?: "row$it" }) { r ->
+                items(sections.size, key = { sections[it].first.id }) { sIndex ->
+                    val (cat, catApps) = sections[sIndex]
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                        Box(Modifier.width(blockWidth)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(gapUsed)) {
-                                rows[r].forEachIndexed { c, app ->
-                                    val moving = app.pkg == movePkg
-                                    AppCard(
-                                        app = app,
-                                        isMoving = moving,
-                                        isHidden = app.pkg in config.hidden,
-                                        accent = accent,
-                                        cardWidth = cardWidth,
-                                        showLabel = config.showAppLabels,
-                                        // No Up handler: Up from row 0 falls through to
-                                        // the status bar. The grid closes with Back.
-                                        modifier = when {
-                                            moving -> Modifier.focusRequester(moveFocus)
-                                            r == targetRow && c == targetCol -> Modifier.focusRequester(gridFocus)
-                                            else -> Modifier
-                                        },
-                                        onLaunch = { onLaunch(app) },
-                                        onLongPress = { onMenu(app) },
-                                    )
+                        Column(Modifier.width(blockWidth)) {
+                            if (config.showCategoryNames) {
+                                Text(
+                                    text = cat.name.uppercase(),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    letterSpacing = 1.5.sp,
+                                    modifier = Modifier.padding(bottom = 10.dp),
+                                )
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(rowGap)) {
+                                catApps.chunked(cols).forEachIndexed { r, rowApps ->
+                                    Row(horizontalArrangement = Arrangement.spacedBy(gapUsed)) {
+                                        rowApps.forEachIndexed { c, app ->
+                                            val moving = app.pkg == movePkg
+                                            val topRow = sIndex == 0 && r == 0
+                                            AppCard(
+                                                app = app,
+                                                isMoving = moving,
+                                                isHidden = app.pkg in config.hidden,
+                                                accent = accent,
+                                                cardWidth = cardWidth,
+                                                showLabel = config.showAppLabels,
+                                                modifier = (when {
+                                                    moving -> Modifier.focusRequester(moveFocus)
+                                                    topRow && c == targetCol -> Modifier.focusRequester(gridFocus)
+                                                    else -> Modifier
+                                                }).then(
+                                                    if (topRow) Modifier.onPreviewKeyEvent { e ->
+                                                        if (movePkg == null &&
+                                                            e.type == KeyEventType.KeyDown &&
+                                                            e.key == Key.DirectionUp
+                                                        ) { expandFromCol = c; onExpandChange(false); true } else false
+                                                    } else Modifier
+                                                ),
+                                                onLaunch = { onLaunch(app) },
+                                                onLongPress = { onMenu(app) },
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1230,6 +1287,7 @@ private fun DockGlassPanel(
     movePkg: String?,
     moveFocus: FocusRequester,
     dockFocus: FocusRequester,
+    focusCol: Int,
     cardWidth: Dp,
     gapUsed: Dp,
     innerPadding: Dp,
@@ -1279,7 +1337,7 @@ private fun DockGlassPanel(
                         showLabel = config.showAppLabels,
                         modifier = (when {
                             moving -> Modifier.focusRequester(moveFocus)
-                            i == 0 -> Modifier.focusRequester(dockFocus)
+                            i == focusCol -> Modifier.focusRequester(dockFocus)
                             else -> Modifier
                         }).onPreviewKeyEvent { e ->
                             if (movePkg == null &&
@@ -1293,6 +1351,37 @@ private fun DockGlassPanel(
                 }
             }
         }
+    }
+}
+
+/** Greeting, large clock and date — the dock home's centerpiece. */
+@Composable
+private fun HomeClock(time: String, date: String, greeting: String) {
+    val shadow = androidx.compose.ui.graphics.Shadow(
+        Color.Black.copy(alpha = 0.45f), blurRadius = 16f,
+    )
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = greeting,
+            style = MaterialTheme.typography.headlineMedium.copy(shadow = shadow),
+            color = Color.White.copy(alpha = 0.8f),
+        )
+        Text(
+            // Tabular figures keep the digits from jittering as the minutes change.
+            text = time,
+            style = MaterialTheme.typography.displayLarge.copy(
+                fontSize = 120.sp,
+                lineHeight = 132.sp,
+                fontFeatureSettings = "tnum",
+                shadow = shadow,
+            ),
+            color = Color.White,
+        )
+        Text(
+            text = date,
+            style = MaterialTheme.typography.headlineSmall.copy(shadow = shadow),
+            color = Color.White.copy(alpha = 0.8f),
+        )
     }
 }
 

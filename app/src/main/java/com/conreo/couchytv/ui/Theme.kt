@@ -3,6 +3,7 @@ package com.conreo.couchytv.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
 
@@ -26,6 +27,31 @@ val WALLPAPERS = listOf(
 )
 
 fun WallpaperPreset.brush(): Brush = Brush.linearGradient(colors)
+
+private class DayStop(val hour: Float, val top: Color, val bottom: Color)
+
+// Keyframes across the day; the last repeats the first so midnight wraps cleanly.
+private val DAY_STOPS = listOf(
+    DayStop(0f, Color(0xFF070B1E), Color(0xFF1A2347)),   // night
+    DayStop(5f, Color(0xFF1B2250), Color(0xFF5B4B8A)),   // pre-dawn
+    DayStop(7f, Color(0xFF3B5B9A), Color(0xFFE59A78)),   // sunrise
+    DayStop(10f, Color(0xFF2A6FB0), Color(0xFF7CC4E8)),  // morning
+    DayStop(14f, Color(0xFF1F5FA5), Color(0xFF5FB3D6)),  // afternoon
+    DayStop(17.5f, Color(0xFF2D4F8E), Color(0xFFE5A36B)), // golden hour
+    DayStop(19.5f, Color(0xFF3A2A66), Color(0xFFD9667A)), // sunset
+    DayStop(21.5f, Color(0xFF141B3F), Color(0xFF3B3B7A)), // dusk
+    DayStop(24f, Color(0xFF070B1E), Color(0xFF1A2347)),
+)
+
+/** Vertical sky gradient for [hour] (0..24, fractional), blended between keyframes. */
+fun timeOfDayBrush(hour: Float): Brush {
+    val h = hour.coerceIn(0f, 24f)
+    val i = DAY_STOPS.indexOfLast { it.hour <= h }.coerceIn(0, DAY_STOPS.size - 2)
+    val a = DAY_STOPS[i]
+    val b = DAY_STOPS[i + 1]
+    val t = ((h - a.hour) / (b.hour - a.hour)).coerceIn(0f, 1f)
+    return Brush.verticalGradient(listOf(lerp(a.top, b.top, t), lerp(a.bottom, b.bottom, t)))
+}
 
 /** Deterministic tile color for apps that ship no banner artwork. */
 fun tileColor(pkg: String): Color {

@@ -29,8 +29,15 @@ fun StatusBar(
     net: NetStatus,
     time: String,
     date: String,
+    showClock: Boolean,
+    showInputs: Boolean,
+    showStore: Boolean,
+    showSleepTimer: Boolean,
     showVpn: Boolean,
     glass: Boolean,
+    onInputsClick: () -> Unit,
+    onStoreClick: () -> Unit,
+    onSleepTimerClick: () -> Unit,
     onVpnClick: () -> Unit,
     onNetworkClick: () -> Unit,
     onSettingsClick: () -> Unit,
@@ -56,7 +63,31 @@ fun StatusBar(
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        // Order: VPN · network · settings · date · clock (clock far right)
+        // Order: inputs · sleep timer · store · VPN · network · settings · date · clock
+        if (showInputs) {
+            StatusIcon(
+                icon = AppIcons.Hdmi,
+                active = true,
+                contentDescription = stringResource(R.string.cd_inputs),
+                onClick = onInputsClick,
+            )
+        }
+        if (showSleepTimer) {
+            StatusIcon(
+                icon = AppIcons.Timer,
+                active = true,
+                contentDescription = stringResource(R.string.cd_sleep_timer),
+                onClick = onSleepTimerClick,
+            )
+        }
+        if (showStore) {
+            StatusIcon(
+                icon = AppIcons.Store,
+                active = true,
+                contentDescription = stringResource(R.string.cd_store),
+                onClick = onStoreClick,
+            )
+        }
         if (showVpn) {
             StatusIcon(
                 icon = AppIcons.Vpn,
@@ -81,7 +112,7 @@ fun StatusBar(
             contentDescription = stringResource(R.string.cd_settings),
             onClick = onSettingsClick,
         )
-        if (date.isNotEmpty()) {
+        if (showClock && date.isNotEmpty()) {
             Text(
                 text = date,
                 style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
@@ -89,7 +120,7 @@ fun StatusBar(
                 modifier = Modifier.padding(start = 10.dp),
             )
         }
-        Text(
+        if (showClock) Text(
             // Tabular figures: digits keep a fixed width so the clock never jitters.
             text = time,
             style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
